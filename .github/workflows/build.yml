@@ -23,16 +23,18 @@ jobs:
         update: false
         install: >-
           base-devel
+          libcurl-devel
           git
           mingw-w64-${{ matrix.arch }}-gcc
           make
           libtool
+          pkg-config
           autoconf
           automake-wrapper
           mingw-w64-${{ matrix.arch }}-libzip
           mingw-w64-${{ matrix.arch }}-github-cli
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@main
     - name: prepare environment
       run: |
         echo "target_triplet=`gcc -dumpmachine`" >> $GITHUB_ENV
@@ -46,7 +48,7 @@ jobs:
             echo "Building $repo..."
             git clone --depth=1 --recursive "https://github.com/libimobiledevice/$repo"
             pushd "$repo" > /dev/null
-            ./autogen.sh CC=gcc CXX=g++ --enable-debug --without-cython
+            ./autogen.sh CC=gcc CXX=g++ --without-cython
             make -j install
             popd > /dev/null
         done
