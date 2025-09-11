@@ -56,37 +56,64 @@ jobs:
 
     - name: prepare release
       run: |
-        mkdir -p rel
-        find /mingw64/bin/ -type f \( -name "*idevice*" -o \
-                                      -name "*irecovery*" -o \
-                                      -name "libimobiledevice*" -o \
-                                      -name "libplist*" -o \
-                                      -name "plistutil.exe" -o \
-                                      -name "libusbmuxd*" -o \
-                                      -name "inetcat.exe" -o \
-                                      -name "iproxy.exe" -o \
-                                      -name "libcurl*.dll" -o \
-                                      -name "libtatsu*.dll" -o \
-                                      -name "libxml2*.dll" -o \
-                                      -name "libzip*.dll" -o \
-                                      -name "zlib*.dll" -o \
-                                      -name "libreadline*.dll" -o \
-                                      -name "libbrotli*.dll" -o \
-                                      -name "libiconv*.dll" -o \
-                                      -name "libunistring*.dll" -o \
-                                      -name "libssh*.dll" -o \
-                                      -name "libintl*.dll" -o \
-                                      -name "libidn*.dll" -o \
-                                      -name "libnghttp*.dll" -o \
-                                      -name "libpsl*.dll" -o \
-                                      -name "libbz2*.dll" -o \
-                                      -name "liblzma*.dll" -o \
-                                      -name "libzstd*.dll" -o \
-                                      -name "libtermcap*.dll" -o \
-                                      -name "libcrypto*.dll" -o \
-                                      -name "libssl*.dll" \) \
-                                      -exec cp -v {} rel \;
-        tar -C rel -cJvf libimobile-suite-latest_${{ matrix.arch }}-${{ matrix.msystem }}.tar.xz .
+        set -Eeuo pipefail
+
+        REL_DIR="rel"
+        BIN_DIR="${MINGW_PREFIX:-/mingw64}/bin"
+        mkdir -p "$REL_DIR"
+
+        if ! command -v ntldd >/dev/null 2>&1; then
+          pacman -S --noconfirm --needed "${MINGW_PACKAGE_PREFIX:-mingw-w64-x86_64}-ntldd-git"
+        fi
+
+        shopt -s nullglob
+
+        declare -a EXE_PATTERNS=("idevice*" "irecovery*" "plistutil.exe" "inetcat.exe" "iproxy.exe")
+        declare -a EXES=()
+
+        for pat in "${EXE_PATTERNS[@]}"; do
+          while IFS= read -r -d '' f; do EXES+=("$f"); done \
+            < <(find "$BIN_DIR" -maxdepth 1 -type f -name "$pat" -print0)
+        done
+
+        if [ ${#EXES[@]} -eq 0 ]; then
+          echo "No executables found under $BIN_DIR (patterns: ${EXE_PATTERNS[*]})" >&2
+          exit 1
+        fi
+
+        echo "Copying executables to $REL_DIR:"
+        printf '%s\0' "${EXES[@]}" | xargs -0 -I{} cp -vt "$REL_DIR" "{}"
+
+        tmpdeps="$(mktemp)"
+        : > "$tmpdeps"
+
+        for exe in "${EXES[@]}"; do
+          echo "Resolving deps for $(basename "$exe")"
+          ntldd -R "$exe" \
+          | sed -n 's/.*=> \(.*\) (.*/\1/p' \
+          | while IFS= read -r dep; do
+              [ "$dep" = "not found" ] && continue
+              if command -v cygpath >/dev/null 2>&1; then
+                dep_u="$(cygpath -u "$dep")"
+              else
+                dep_u="$dep"
+              fi
+              case "$dep_u" in
+                "$MINGW_PREFIX"/*)
+                  [ -f "$dep_u" ] && printf '%s\0' "$dep_u" >> "$tmpdeps"
+                  ;;
+              esac
+            done
+        done
+
+        if [ -s "$tmpdeps" ]; then
+          echo "Copying dependent DLLs to $REL_DIR:"
+          sort -z -u "$tmpdeps" | xargs -0 -I{} cp -vt "$REL_DIR" "{}"
+        else
+          echo "No dependent DLLs discovered under $MINGW_PREFIX."
+        fi
+
+        tar -C "$REL_DIR" -cJvf "libimobile-suite-latest_${{ matrix.arch }}-${{ matrix.msystem }}.tar.xz" .
 
     - name: publish release
       env:
