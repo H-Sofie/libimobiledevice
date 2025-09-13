@@ -61,7 +61,7 @@ jobs:
         done
 
         echo "Building idevicerestore..."
-        git clone --depth=1 --recursive "https://github.com/H-Sofie/idevicerestore"
+        git clone -b dev --single-branch --depth=1 --recursive "https://github.com/H-Sofie/idevicerestore"
         pushd "idevicerestore" > /dev/null
         ./autogen.sh CC=gcc CXX=g++ --host="$target_triplet" --prefix="$MINGW_PREFIX" --without-cython
         make -j install
